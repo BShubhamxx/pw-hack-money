@@ -203,31 +203,31 @@ export function GraphView({ data }: GraphViewProps) {
         onOpenChange={(open) => !open && setSelectedNode(null)}
       >
         <SheetContent>
-          <SheetHeader className="mb-4">
-            <div className="flex items-center gap-3">
+          <SheetHeader className="mb-6 pr-8 mt-2">
+            <div className="flex items-center gap-4">
               <div
-                className={`p-2 rounded-lg ${
+                className={`p-3 rounded-xl shadow-sm ${
                   selectedNode?.riskScore && selectedNode.riskScore > 80
-                    ? "bg-red-100 text-red-600"
-                    : "bg-slate-100 text-slate-600"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-primary/10 text-primary"
                 }`}
               >
                 {selectedNode?.riskScore && selectedNode.riskScore > 80 ? (
-                  <ShieldAlert size={24} />
+                  <ShieldAlert size={28} />
                 ) : (
-                  <ShieldCheck size={24} />
+                  <ShieldCheck size={28} />
                 )}
               </div>
               <div className="space-y-1">
-                <SheetTitle className="text-xl">
+                <SheetTitle className="text-2xl font-bold tracking-tight">
                   Account {selectedNode?.id}
                 </SheetTitle>
-                <SheetDescription className="flex items-center gap-2">
-                  <CreditCard size={14} /> Transaction Node
+                <SheetDescription className="flex items-center gap-2 text-sm">
+                  <CreditCard size={16} /> Transaction Node
                   {selectedNode?.patternType && (
                     <>
-                      <span>•</span>
-                      <span className="capitalize">
+                      <span className="mx-1">•</span>
+                      <span className="capitalize font-medium text-foreground">
                         {selectedNode.patternType}
                       </span>
                     </>
@@ -238,57 +238,63 @@ export function GraphView({ data }: GraphViewProps) {
           </SheetHeader>
 
           {selectedNode && (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-6">
               {/* STATUS CARD */}
-              <div className="rounded-lg border p-4 shadow-sm bg-card">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                    <Activity size={16} /> Risk Analysis
+              <div className="rounded-xl border bg-card p-5 shadow-sm transition-all hover:shadow-md">
+                <div className="flex items-center justify-between mb-5">
+                  <span className="text-sm font-semibold flex items-center gap-2 text-muted-foreground">
+                    <Activity className="w-4 h-4" /> Risk Analysis
                   </span>
-                  <span
-                    className={`text-xl font-bold ${
-                      selectedNode.riskScore > 80
-                        ? "text-red-600"
-                        : "text-foreground"
-                    }`}
-                  >
-                    {selectedNode.riskScore}
-                    <span className="text-sm text-muted-foreground ml-1">
+                  <div className="flex items-baseline gap-1">
+                    <span
+                      className={`text-3xl font-bold tracking-tight ${
+                        selectedNode.riskScore > 80
+                          ? "text-destructive"
+                          : "text-foreground"
+                      }`}
+                    >
+                      {selectedNode.riskScore}
+                    </span>
+                    <span className="text-sm font-medium text-muted-foreground">
                       /100
                     </span>
-                  </span>
+                  </div>
                 </div>
                 <Progress
                   value={selectedNode.riskScore}
-                  className="h-2"
+                  className="h-2.5 bg-secondary"
                   indicatorClassName={
-                    selectedNode.riskScore > 80 ? "bg-red-600" : "bg-primary"
+                    selectedNode.riskScore > 80
+                      ? "bg-destructive"
+                      : "bg-primary"
                   }
                 />
-                <p className="mt-3 text-xs text-muted-foreground">
+                <p className="mt-4 text-sm text-muted-foreground leading-snug">
                   {selectedNode.riskScore > 80
                     ? "Critical risk detected. Recommended for immediate suspension."
                     : "Account activity is within normal behavioral patterns."}
                 </p>
               </div>
 
-              <Separator />
-
               {/* KEY METRICS */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Total Transactions
-                  </span>
-                  <div className="text-2xl font-bold">
+                <div className="rounded-xl border bg-card p-5 shadow-sm transition-all hover:shadow-md flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span className="text-xs font-semibold uppercase tracking-wider">
+                      Total Transactions
+                    </span>
+                  </div>
+                  <div className="text-3xl font-bold text-foreground">
                     {selectedNode.totalTransactions}
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Pattern Type
-                  </span>
-                  <div className="text-2xl font-bold capitalize">
+                <div className="rounded-xl border bg-card p-5 shadow-sm transition-all hover:shadow-md flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <span className="text-xs font-semibold uppercase tracking-wider">
+                      Pattern Type
+                    </span>
+                  </div>
+                  <div className="text-3xl font-bold capitalize text-foreground truncate">
                     {selectedNode.patternType || "None"}
                   </div>
                 </div>
@@ -296,20 +302,22 @@ export function GraphView({ data }: GraphViewProps) {
 
               {/* CONTEXT ALERT */}
               {selectedNode.ringId && (
-                <div className="mt-4 rounded-lg bg-orange-50 p-4 border border-orange-200">
-                  <div className="flex items-start gap-3">
-                    <Users className="text-orange-600 mt-0.5" size={18} />
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-semibold text-orange-900">
+                <div className="rounded-xl bg-orange-50/80 p-5 border border-orange-200/60 shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-orange-500" />
+                  <div className="flex items-start gap-4">
+                    <div className="p-2 bg-orange-100 rounded-lg shrink-0">
+                      <Users className="text-orange-600 w-5 h-5" />
+                    </div>
+                    <div className="space-y-1.5 flex-1 mt-1">
+                      <h4 className="text-sm font-semibold text-orange-950">
                         Fraud Ring Member
                       </h4>
-                      <p className="text-xs text-orange-800 leading-relaxed">
+                      <p className="text-sm text-orange-800/90 leading-relaxed">
                         Linked to{" "}
-                        <span className="font-medium">
+                        <strong className="font-semibold text-orange-950">
                           {selectedNode.ringId}
-                        </span>
-                        .
-                        <br />
+                        </strong>
+                        .<br />
                         Suggest investigating related accounts.
                       </p>
                     </div>

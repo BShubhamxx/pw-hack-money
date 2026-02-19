@@ -14,12 +14,56 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { FiltersPanel } from "@/components/analytics/filters";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { fetchSessions } from "@/lib/api";
+import { StatsCards } from "@/components/analytics/stats-cards";
 
 export default function AnalyticsPage() {
   const [minRiskScore, setMinRiskScore] = useState(0);
   const [selectedPattern, setSelectedPattern] = useState("all");
   const [selectedRingId, setSelectedRingId] = useState<string | null>(null);
+
+  // Stats State
+  const [stats, setStats] = useState({
+    totalJobs: 0,
+    totalAccounts: 0,
+    suspiciousCount: 0,
+    ringsDetected: 0,
+    avgProcessingTime: 0,
+  });
+
+  useEffect(() => {
+    async function loadStats() {
+      const sessions = await fetchSessions();
+      if (sessions.length === 0) return;
+
+      const totalJobs = sessions.length;
+      const totalAccounts = sessions.reduce(
+        (sum, s) => sum + s.total_accounts,
+        0,
+      );
+      const suspiciousCount = sessions.reduce(
+        (sum, s) => sum + s.suspicious_count,
+        0,
+      );
+      const ringsDetected = sessions.reduce(
+        (sum, s) => sum + s.rings_detected,
+        0,
+      );
+      const totalTime = sessions.reduce((sum, s) => sum + s.processing_time, 0);
+      const avgProcessingTime = totalTime / totalJobs;
+
+      setStats({
+        totalJobs,
+        totalAccounts,
+        suspiciousCount,
+        ringsDetected,
+        avgProcessingTime,
+      });
+    }
+
+    loadStats();
+  }, []);
 
   const filteredData = useMemo(() => {
     let nodes = mockGraphData.nodes;
@@ -85,7 +129,9 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-12 lg:grid-cols-12 md:h-[calc(100vh-12rem)]">
+          <StatsCards {...stats} />
+
+          <div className="grid gap-4 md:grid-cols-12 lg:grid-cols-12 md:h-[calc(100vh-16rem)]">
             <div className="col-span-12 md:col-span-3 lg:col-span-2">
               <Card className="h-full">
                 <CardContent className="p-4 h-full">
