@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   IconUpload,
@@ -25,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function UploadPage() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -77,6 +79,7 @@ export default function UploadPage() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     setIsAnalyzing(false);
     toast.success("Analysis complete!");
+    router.push("/analytics");
   };
 
   return (
