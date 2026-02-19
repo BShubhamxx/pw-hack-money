@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["upload"])
     summary="Upload CSV and run analysis",
     response_description="Full analysis result with suspicious accounts, fraud rings, and summary",
 )
-async def upload_and_analyze(
+def upload_and_analyze(
     file: UploadFile = File(..., description="CSV file with transaction data"),
     db: Session = Depends(get_db),
 ):
@@ -52,7 +52,7 @@ async def upload_and_analyze(
         )
 
     # Read file content
-    content = await file.read()
+    content = file.file.read()
     if not content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

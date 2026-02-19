@@ -1,11 +1,24 @@
 "use client";
 
-import { GraphView } from "@/components/analytics/graph-view";
+import dynamic from "next/dynamic";
 import { FraudTable } from "@/components/analytics/fraud-table";
+
+const GraphView = dynamic(
+  () =>
+    import("@/components/analytics/graph-view").then((mod) => mod.GraphView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full w-full">
+        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    ),
+  },
+);
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { mockGraphData } from "@/lib/mock-data";
+import { GraphResponse } from "@/lib/mock-data";
 import {
   Card,
   CardContent,
@@ -14,11 +27,28 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { FiltersPanel } from "@/components/analytics/filters";
-import { useState, useMemo, useEffect } from "react";
-import { fetchSessions } from "@/lib/api";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import {
+  fetchSessions,
+  fetchSessionGraph,
+  fetchSessionDetail,
+  UploadResponse,
+} from "@/lib/api";
 import { StatsCards } from "@/components/analytics/stats-cards";
+import { useSearchParams } from "next/navigation";
+import { IconLoader } from "@tabler/icons-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Upload } from "lucide-react";
 
-export default function AnalyticsPage() {
+function AnalyticsContent() {
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session");
+
+  const [graphData, setGraphData] = useState<GraphResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [minRiskScore, setMinRiskScore] = useState(0);
   const [selectedPattern, setSelectedPattern] = useState("all");
   const [selectedRingId, setSelectedRingId] = useState<string | null>(null);
@@ -33,42 +63,85 @@ export default function AnalyticsPage() {
   });
 
   useEffect(() => {
-    async function loadStats() {
-      const sessions = await fetchSessions();
-      if (sessions.length === 0) return;
+    async function loadData() {
+      setIsLoading(true);
+      setError(null);
 
-      const totalJobs = sessions.length;
-      const totalAccounts = sessions.reduce(
-        (sum, s) => sum + s.total_accounts,
-        0,
-      );
-      const suspiciousCount = sessions.reduce(
-        (sum, s) => sum + s.suspicious_count,
-        0,
-      );
-      const ringsDetected = sessions.reduce(
-        (sum, s) => sum + s.rings_detected,
-        0,
-      );
-      const totalTime = sessions.reduce((sum, s) => sum + s.processing_time, 0);
-      const avgProcessingTime = totalTime / totalJobs;
+      try {
+        if (sessionId) {
+          // Load graph data for a specific session
+          const graph = await fetchSessionGraph(sessionId);
+          if (graph) {
+            setGraphData(graph);
+          } else {
+            setError("Session not found. It may have been deleted.");
+          }
 
-      setStats({
-        totalJobs,
-        totalAccounts,
-        suspiciousCount,
-        ringsDetected,
-        avgProcessingTime,
-      });
+          // Load session detail for stats
+          const detail = await fetchSessionDetail(sessionId);
+          if (detail) {
+            setStats({
+              totalJobs: 1,
+              totalAccounts: detail.total_accounts,
+              suspiciousCount: detail.suspicious_count,
+              ringsDetected: detail.rings_detected,
+              avgProcessingTime: detail.processing_time,
+            });
+          }
+        } else {
+          // No session ID — load aggregate stats
+          const sessions = await fetchSessions();
+          if (sessions.length > 0) {
+            const totalJobs = sessions.length;
+            const totalAccounts = sessions.reduce(
+              (sum, s) => sum + s.total_accounts,
+              0,
+            );
+            const suspiciousCount = sessions.reduce(
+              (sum, s) => sum + s.suspicious_count,
+              0,
+            );
+            const ringsDetected = sessions.reduce(
+              (sum, s) => sum + s.rings_detected,
+              0,
+            );
+            const totalTime = sessions.reduce(
+              (sum, s) => sum + s.processing_time,
+              0,
+            );
+            const avgProcessingTime = totalTime / totalJobs;
+
+            setStats({
+              totalJobs,
+              totalAccounts,
+              suspiciousCount,
+              ringsDetected,
+              avgProcessingTime,
+            });
+
+            // Load graph from the most recent session
+            const latestGraph = await fetchSessionGraph(sessions[0].id);
+            if (latestGraph) {
+              setGraphData(latestGraph);
+            }
+          }
+        }
+      } catch (err) {
+        setError("Failed to load data. Make sure the backend is running.");
+      } finally {
+        setIsLoading(false);
+      }
     }
 
-    loadStats();
-  }, []);
+    loadData();
+  }, [sessionId]);
 
   const filteredData = useMemo(() => {
-    let nodes = mockGraphData.nodes;
-    let edges = mockGraphData.edges;
-    let rings = mockGraphData.rings;
+    if (!graphData) return { nodes: [], edges: [], rings: [] };
+
+    let nodes = graphData.nodes;
+    let edges = graphData.edges;
+    let rings = graphData.rings;
 
     // Filter by Risk Score
     nodes = nodes.filter((node) => node.riskScore >= minRiskScore);
@@ -92,11 +165,11 @@ export default function AnalyticsPage() {
     );
 
     return { nodes, edges, rings };
-  }, [minRiskScore, selectedPattern, selectedRingId]);
+  }, [graphData, minRiskScore, selectedPattern, selectedRingId]);
 
-  const uniqueRingIds = Array.from(
-    new Set(mockGraphData.rings.map((r) => r.ringId)),
-  );
+  const uniqueRingIds = graphData
+    ? Array.from(new Set(graphData.rings.map((r) => r.ringId)))
+    : [];
 
   const handleReset = () => {
     setMinRiskScore(0);
@@ -104,6 +177,108 @@ export default function AnalyticsPage() {
     setSelectedRingId(null);
   };
 
+  return (
+    <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+      <div className="flex items-center justify-between space-y-2">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Fraud Analytics</h2>
+          <p className="text-muted-foreground">
+            {sessionId
+              ? "Analysis results for the uploaded dataset."
+              : "Detailed analysis of financial transaction patterns and detected fraud rings."}
+          </p>
+        </div>
+      </div>
+
+      <StatsCards {...stats} />
+
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center gap-4 py-16">
+          <IconLoader className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading analysis data...</p>
+        </div>
+      ) : error ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-4 py-16">
+            <p className="text-muted-foreground">{error}</p>
+            <Button asChild>
+              <Link href="/upload">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload a File
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : !graphData || graphData.nodes.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-4 py-16">
+            <p className="text-muted-foreground">
+              No analysis data available. Upload a CSV file to get started.
+            </p>
+            <Button asChild>
+              <Link href="/upload">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload a File
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-12 lg:grid-cols-12 md:h-[calc(100vh-16rem)]">
+          <div className="col-span-12 md:col-span-3 lg:col-span-2">
+            <Card className="h-full">
+              <CardContent className="p-4 h-full">
+                <FiltersPanel
+                  minRiskScore={minRiskScore}
+                  onRiskChange={setMinRiskScore}
+                  selectedPattern={selectedPattern}
+                  onPatternChange={setSelectedPattern}
+                  selectedRingId={selectedRingId}
+                  onRingIdChange={setSelectedRingId}
+                  ringIds={uniqueRingIds}
+                  onReset={handleReset}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="col-span-12 md:col-span-9 lg:col-span-10 flex flex-col gap-4 h-full">
+            <Card className="flex-1 min-h-100">
+              <CardHeader>
+                <CardTitle>Transaction Graph</CardTitle>
+                <CardDescription>
+                  Interactive visualization of relationships. Red nodes indicate
+                  high suspicion.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-[calc(100%-5rem)] p-0">
+                <div className="h-full w-full">
+                  <GraphView data={filteredData} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="h-1/3 min-h-64 flex flex-col">
+              <CardHeader>
+                <CardTitle>Detected Fraud Rings</CardTitle>
+                <CardDescription>
+                  Summary of all identified fraud rings and their risk scores.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex-1 overflow-auto">
+                  <FraudTable data={filteredData.rings} />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AnalyticsPage() {
   return (
     <SidebarProvider
       style={
@@ -116,71 +291,15 @@ export default function AnalyticsPage() {
       <AppSidebar variant="inset" />
       <SidebarInset>
         <SiteHeader />
-        <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-          <div className="flex items-center justify-between space-y-2">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight">
-                Fraud Analytics
-              </h2>
-              <p className="text-muted-foreground">
-                Detailed analysis of financial transaction patterns and detected
-                fraud rings.
-              </p>
+        <Suspense
+          fallback={
+            <div className="flex flex-1 items-center justify-center">
+              <IconLoader className="h-10 w-10 animate-spin text-primary" />
             </div>
-          </div>
-
-          <StatsCards {...stats} />
-
-          <div className="grid gap-4 md:grid-cols-12 lg:grid-cols-12 md:h-[calc(100vh-16rem)]">
-            <div className="col-span-12 md:col-span-3 lg:col-span-2">
-              <Card className="h-full">
-                <CardContent className="p-4 h-full">
-                  <FiltersPanel
-                    minRiskScore={minRiskScore}
-                    onRiskChange={setMinRiskScore}
-                    selectedPattern={selectedPattern}
-                    onPatternChange={setSelectedPattern}
-                    selectedRingId={selectedRingId}
-                    onRingIdChange={setSelectedRingId}
-                    ringIds={uniqueRingIds}
-                    onReset={handleReset}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="col-span-12 md:col-span-9 lg:col-span-10 flex flex-col gap-4 h-full">
-              <Card className="flex-1 min-h-100">
-                <CardHeader>
-                  <CardTitle>Transaction Graph</CardTitle>
-                  <CardDescription>
-                    Interactive visualization of relationships. Red nodes
-                    indicate high suspicion.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="h-[calc(100%-5rem)] p-0">
-                  <div className="h-full w-full">
-                    <GraphView data={filteredData} />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="h-1/3 min-h-64 flex flex-col">
-                <CardHeader>
-                  <CardTitle>Detected Fraud Rings</CardTitle>
-                  <CardDescription>
-                    Summary of all identified fraud rings and their risk scores.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex-1 overflow-auto">
-                    <FraudTable data={filteredData.rings} />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </div>
+          }
+        >
+          <AnalyticsContent />
+        </Suspense>
       </SidebarInset>
     </SidebarProvider>
   );

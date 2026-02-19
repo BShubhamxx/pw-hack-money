@@ -1,13 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import CytoscapeComponent from "react-cytoscapejs";
-import cytoscape from "cytoscape";
-import coseBilkent from "cytoscape-cose-bilkent";
-// @ts-ignore
-const popper = require("cytoscape-popper");
-import tippy from "tippy.js";
-import "tippy.js/dist/tippy.css";
+import type cytoscape from "cytoscape";
 
 import {
   Sheet,
@@ -29,173 +23,243 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-cytoscape.use(coseBilkent);
-// cytoscape-popper exports a factory that returns the registration function
-// We pass a dummy factory because we only use popperRef() which doesn't need Popper
-cytoscape.use(popper(() => {}));
-
 interface GraphViewProps {
   data: GraphResponse;
 }
 
+// Track whether cytoscape extensions have been registered
+let extensionsRegistered = false;
+
 export function GraphView({ data }: GraphViewProps) {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isReady, setIsReady] = useState(false);
 
-  const elements = [
-    ...data.nodes.map((node) => ({
-      data: { ...node, label: node.id },
-      classes: [
-        node.suspicious ? "suspicious" : "",
-        node.patternType || "",
-        node.riskScore > 80 ? "high-risk" : "",
-      ].join(" "),
-    })),
-    ...data.edges.map((edge) => ({
-      data: { ...edge },
-    })),
-  ];
-
-  const stylesheet: any[] = [
-    {
-      selector: "node",
-      style: {
-        "background-color": "#94a3b8",
-        label: "data(label)",
-        width: 30,
-        height: 30,
-        color: "#fff",
-        "text-valign": "center",
-        "text-halign": "center",
-        "text-outline-width": 2,
-        "text-outline-color": "#94a3b8",
-        "font-size": 12,
-      },
-    },
-    {
-      selector: "edge",
-      style: {
-        width: 2,
-        "line-color": "#cbd5e1",
-        "target-arrow-color": "#cbd5e1",
-        "target-arrow-shape": "triangle",
-        "curve-style": "bezier",
-      },
-    },
-    {
-      selector: ".suspicious",
-      style: {
-        "background-color": "#ef4444",
-        "border-width": 4,
-        "border-color": "#7f1d1d",
-        width: 40,
-        height: 40,
-        "text-outline-color": "#ef4444",
-      },
-    },
-    {
-      selector: ".cycle",
-      style: {
-        "background-color": "#2563eb",
-        "text-outline-color": "#2563eb",
-      },
-    },
-    {
-      selector: ".smurfing",
-      style: {
-        "background-color": "#f97316",
-        "text-outline-color": "#f97316",
-      },
-    },
-    {
-      selector: ".shell",
-      style: {
-        "background-color": "#8b5cf6",
-        "text-outline-color": "#8b5cf6",
-      },
-    },
-    {
-      selector: ":selected",
-      style: {
-        "border-width": 4,
-        "border-color": "#000",
-      },
-    },
-  ];
-
+  // Dynamically import and initialize Cytoscape (client-side only)
   useEffect(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
+    let cancelled = false;
 
-    // Tooltip logic
-    const makeTippy = (node: cytoscape.NodeSingular, text: string) => {
-      const ref = (node as any).popperRef();
-      const dummyDomEle = document.createElement("div");
-      const tip = tippy(dummyDomEle, {
-        getReferenceClientRect: ref.getBoundingClientRect,
-        trigger: "manual",
-        content: () => {
-          const div = document.createElement("div");
-          div.innerHTML = text;
-          return div;
-        },
-        arrow: true,
-        placement: "bottom",
-        hideOnClick: false,
-        sticky: "reference",
-        interactive: true,
-        appendTo: document.body,
-      });
-      return tip;
-    };
+    async function initCytoscape() {
+      const [
+        cytoscapeModule,
+        CytoscapeComponentModule,
+        coseBilkentModule,
+        popperModule,
+        tippyModule,
+      ] = await Promise.all([
+        import("cytoscape"),
+        import("react-cytoscapejs"),
+        import("cytoscape-cose-bilkent"),
+        import("cytoscape-popper"),
+        import("tippy.js"),
+      ]);
 
-    cy.on("mouseover", "node", (event) => {
-      const node = event.target;
-      const data = node.data();
-      const content = `
-        <div class="px-2 py-1 text-xs">
-          <strong>ID:</strong> ${data.id}<br/>
-          <strong>Risk Score:</strong> ${data.riskScore}<br/>
-          <strong>Transactions:</strong> ${data.totalTransactions}
-        </div>
-      `;
-      const tippyInstance = makeTippy(node, content);
-      tippyInstance.show();
-      node.data("tippy", tippyInstance);
-    });
+      if (cancelled) return;
 
-    cy.on("mouseout", "node", (event) => {
-      const node = event.target;
-      const tippyInstance = node.data("tippy");
-      if (tippyInstance) {
-        tippyInstance.destroy();
+      const cy = cytoscapeModule.default;
+      const coseBilkent = coseBilkentModule.default;
+      const popper = popperModule.default;
+
+      // Register extensions only once
+      if (!extensionsRegistered) {
+        cy.use(coseBilkent);
+        try {
+          cy.use(popper(() => {}));
+        } catch {
+          // Ignore if already registered
+        }
+        extensionsRegistered = true;
       }
-    });
 
-    // Click handler for sheet
-    cy.on("tap", "node", (event) => {
-      const nodeData = event.target.data();
-      setSelectedNode(nodeData as Node);
-    });
+      if (!cancelled) {
+        setIsReady(true);
+      }
+    }
 
-    // Clean up
+    initCytoscape();
+
     return () => {
-      cy.removeAllListeners();
+      cancelled = true;
     };
   }, []);
+
+  // Build and render the Cytoscape graph once ready
+  useEffect(() => {
+    if (!isReady || !containerRef.current) return;
+
+    let cy: cytoscape.Core | null = null;
+
+    async function renderGraph() {
+      const cytoscapeModule = await import("cytoscape");
+      const tippyModule = await import("tippy.js");
+
+      const cytoscapeFn = cytoscapeModule.default;
+      const tippy = tippyModule.default;
+
+      const elements: cytoscape.ElementDefinition[] = [
+        ...data.nodes.map((node) => ({
+          data: { ...node, label: node.id },
+          classes: [
+            node.suspicious ? "suspicious" : "",
+            node.patternType || "",
+            node.riskScore > 80 ? "high-risk" : "",
+          ].join(" "),
+        })),
+        ...data.edges.map((edge) => ({
+          data: { ...edge },
+        })),
+      ];
+
+      const stylesheet: any[] = [
+        {
+          selector: "node",
+          style: {
+            "background-color": "#94a3b8",
+            label: "data(label)",
+            width: 30,
+            height: 30,
+            color: "#fff",
+            "text-valign": "center",
+            "text-halign": "center",
+            "text-outline-width": 2,
+            "text-outline-color": "#94a3b8",
+            "font-size": 12,
+          },
+        },
+        {
+          selector: "edge",
+          style: {
+            width: 2,
+            "line-color": "#cbd5e1",
+            "target-arrow-color": "#cbd5e1",
+            "target-arrow-shape": "triangle",
+            "curve-style": "bezier",
+          },
+        },
+        {
+          selector: ".suspicious",
+          style: {
+            "background-color": "#ef4444",
+            "border-width": 4,
+            "border-color": "#7f1d1d",
+            width: 40,
+            height: 40,
+            "text-outline-color": "#ef4444",
+          },
+        },
+        {
+          selector: ".cycle",
+          style: {
+            "background-color": "#2563eb",
+            "text-outline-color": "#2563eb",
+          },
+        },
+        {
+          selector: ".smurfing",
+          style: {
+            "background-color": "#f97316",
+            "text-outline-color": "#f97316",
+          },
+        },
+        {
+          selector: ".shell",
+          style: {
+            "background-color": "#8b5cf6",
+            "text-outline-color": "#8b5cf6",
+          },
+        },
+        {
+          selector: ":selected",
+          style: {
+            "border-width": 4,
+            "border-color": "#000",
+          },
+        },
+      ];
+
+      cy = cytoscapeFn({
+        container: containerRef.current,
+        elements,
+        style: stylesheet as any,
+        layout: { name: "cose-bilkent", animationDuration: 500 } as any,
+      });
+
+      cyRef.current = cy;
+
+      // Tooltip logic
+      const makeTippy = (node: cytoscape.NodeSingular, text: string) => {
+        const ref = (node as any).popperRef();
+        const dummyDomEle = document.createElement("div");
+        const tip = tippy(dummyDomEle, {
+          getReferenceClientRect: ref.getBoundingClientRect,
+          trigger: "manual",
+          content: () => {
+            const div = document.createElement("div");
+            div.innerHTML = text;
+            return div;
+          },
+          arrow: true,
+          placement: "bottom",
+          hideOnClick: false,
+          sticky: "reference",
+          interactive: true,
+          appendTo: document.body,
+        });
+        return tip;
+      };
+
+      cy.on("mouseover", "node", (event) => {
+        const node = event.target;
+        const nodeData = node.data();
+        const content = `
+          <div class="px-2 py-1 text-xs">
+            <strong>ID:</strong> ${nodeData.id}<br/>
+            <strong>Risk Score:</strong> ${nodeData.riskScore}<br/>
+            <strong>Transactions:</strong> ${nodeData.totalTransactions}
+          </div>
+        `;
+        const tippyInstance = makeTippy(node, content);
+        tippyInstance.show();
+        node.data("tippy", tippyInstance);
+      });
+
+      cy.on("mouseout", "node", (event) => {
+        const node = event.target;
+        const tippyInstance = node.data("tippy");
+        if (tippyInstance) {
+          tippyInstance.destroy();
+        }
+      });
+
+      // Click handler for sheet
+      cy.on("tap", "node", (event) => {
+        const nodeData = event.target.data();
+        setSelectedNode(nodeData as Node);
+      });
+    }
+
+    renderGraph();
+
+    return () => {
+      if (cy) {
+        cy.destroy();
+        cy = null;
+        cyRef.current = null;
+      }
+    };
+  }, [isReady, data]);
 
   return (
     <>
       <div className="h-full w-full border rounded-lg overflow-hidden bg-background">
-        <CytoscapeComponent
-          elements={elements}
-          style={{ width: "100%", height: "100%" }}
-          stylesheet={stylesheet}
-          cy={(cy: cytoscape.Core) => {
-            cyRef.current = cy;
-          }}
-          layout={{ name: "cose-bilkent", animationDuration: 500 }}
-        />
+        {!isReady ? (
+          <div className="flex items-center justify-center h-full w-full">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          </div>
+        ) : (
+          <div ref={containerRef} className="h-full w-full" />
+        )}
       </div>
 
       <Sheet

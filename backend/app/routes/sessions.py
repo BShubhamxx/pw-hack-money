@@ -152,3 +152,100 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
     db.delete(session)
     db.commit()
     return {"detail": f"Session {session_id} deleted successfully"}
+
+
+# ---------------------------------------------------------------
+# GET /api/sessions/{session_id}/graph — Graph visualization data
+# ---------------------------------------------------------------
+@router.get(
+    "/{session_id}/graph",
+    summary="Get graph visualization data for a session",
+)
+def get_session_graph(session_id: str, db: Session = Depends(get_db)):
+    """
+    Reconstructs graph visualization data from stored DB records.
+    Returns nodes (accounts) and edges (transactions within rings),
+    plus ring metadata for the frontend GraphView component.
+    """
+    session = db.query(AnalysisSession).filter(AnalysisSession.id == session_id).first()
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} not found",
+        )
+
+    # Build nodes from suspicious accounts
+    nodes = []
+    account_set: set[str] = set()
+    for acct in session.suspicious_accounts:
+        pattern_type = None
+        if acct.detected_patterns:
+            raw = acct.detected_patterns[0].pattern_name
+            # Normalize: layered_shell / shell_intermediary → shell, cycle_length_X → cycle, fan_in/fan_out → smurfing
+            if "shell" in raw or "layered" in raw:
+                pattern_type = "shell"
+            elif "cycle" in raw:
+                pattern_type = "cycle"
+            elif "fan" in raw or "smurf" in raw:
+                pattern_type = "smurfing"
+            else:
+                pattern_type = raw
+
+        nodes.append({
+            "id": acct.account_id,
+            "riskScore": acct.suspicion_score,
+            "suspicious": True,
+            "ringId": acct.ring_id,
+            "patternType": pattern_type,
+            "totalTransactions": 0,  # Not stored in DB, but not critical
+        })
+        account_set.add(acct.account_id)
+
+    # Build rings and edges from fraud ring members
+    rings = []
+    edges = []
+    edge_counter = 0
+    for ring in session.fraud_rings:
+        member_ids = [m.account_id for m in ring.members]
+        # Normalize pattern type
+        pt = ring.pattern_type
+        if "shell" in pt or "layered" in pt:
+            pt = "shell"
+
+        rings.append({
+            "ringId": ring.ring_id,
+            "patternType": pt,
+            "memberCount": ring.member_count,
+            "riskScore": ring.risk_score,
+            "members": member_ids,
+        })
+
+        # Create edges between consecutive members to show relationships
+        for i in range(len(member_ids) - 1):
+            edge_counter += 1
+            edges.append({
+                "id": f"e_{edge_counter}",
+                "source": member_ids[i],
+                "target": member_ids[i + 1],
+                "amount": 0,
+                "timestamp": session.created_at.isoformat() if session.created_at else "",
+            })
+
+            # Add non-suspicious member nodes if not already present
+            for mid in member_ids:
+                if mid not in account_set:
+                    nodes.append({
+                        "id": mid,
+                        "riskScore": 0,
+                        "suspicious": False,
+                        "ringId": ring.ring_id,
+                        "patternType": pt,
+                        "totalTransactions": 0,
+                    })
+                    account_set.add(mid)
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "rings": rings,
+    }

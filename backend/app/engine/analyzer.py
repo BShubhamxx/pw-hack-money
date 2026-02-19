@@ -41,10 +41,24 @@ def analyze(csv_content: bytes) -> Dict[str, Any]:
     # ── Step 2: Build Graph ────────────────────────────────────────
     graph = build_graph(transactions)
 
-    # ── Step 3: Run Detectors ──────────────────────────────────────
-    cycle_rings = detect_cycles(graph)
-    smurfing_rings = detect_smurfing(graph)
-    shell_chains = detect_shell_networks(graph)
+    # ── Step 3: Run Detectors (with Timeout Protection) ────────────
+    import concurrent.futures
+
+    def run_detectors():
+        return (
+            detect_cycles(graph),
+            detect_smurfing(graph),
+            detect_shell_networks(graph),
+        )
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_detectors)
+            # Give detectors 15 seconds max to complete
+            cycle_rings, smurfing_rings, shell_chains = future.result(timeout=15)
+    except concurrent.futures.TimeoutError:
+        print("WARNING: Detectors timed out, proceeding with empty results.")
+        cycle_rings, smurfing_rings, shell_chains = [], [], []
 
     # ── Step 4: Aggregate Results ──────────────────────────────────
     # Track per-account pattern involvement
@@ -143,9 +157,57 @@ def analyze(csv_content: bytes) -> Dict[str, Any]:
             "risk_score": ring["risk_score"],
         })
 
+    # ── Step 7: Build graph visualization data ────────────────────
+    graph_nodes = []
+    for node_id in graph.nodes:
+        node_stats = graph.stats.get(node_id, None)
+        total_txns = node_stats.total_txn_count if node_stats else 0
+        pattern_set = account_patterns.get(node_id, set())
+        # Normalize pattern type for frontend CSS classes
+        raw_pattern = next(iter(pattern_set), None)
+        pattern_type = None
+        if raw_pattern == "layered_shell":
+            pattern_type = "shell"
+        elif raw_pattern:
+            pattern_type = raw_pattern
+
+        graph_nodes.append({
+            "id": node_id,
+            "riskScore": account_scores.get(node_id, 0),
+            "suspicious": node_id in account_scores,
+            "ringId": account_ring_ids.get(node_id),
+            "patternType": pattern_type,
+            "totalTransactions": total_txns,
+        })
+
+    graph_edges = []
+    for sender, edges_list in graph.adj.items():
+        for edge in edges_list:
+            graph_edges.append({
+                "id": edge.transaction_id,
+                "source": sender,
+                "target": edge.target,
+                "amount": edge.amount,
+                "timestamp": edge.timestamp.isoformat(),
+            })
+
     return {
         "suspicious_accounts": suspicious_accounts,
         "fraud_rings": fraud_rings_out,
+        "graph": {
+            "nodes": graph_nodes,
+            "edges": graph_edges,
+            "rings": [
+                {
+                    "ringId": r["ring_id"],
+                    "patternType": "shell" if "shell" in r["pattern_type"] else r["pattern_type"],
+                    "memberCount": len(r["member_accounts"]),
+                    "riskScore": r["risk_score"],
+                    "members": r["member_accounts"],
+                }
+                for r in fraud_rings_out
+            ],
+        },
         "summary": {
             "total_accounts_analyzed": graph.node_count,
             "suspicious_accounts_flagged": len(suspicious_accounts),

@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { uploadCSV } from "@/lib/api";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
@@ -22,7 +23,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function UploadPage() {
@@ -75,11 +75,15 @@ export default function UploadPage() {
     if (!file) return;
 
     setIsAnalyzing(true);
-    // Simulate analysis
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setIsAnalyzing(false);
-    toast.success("Analysis complete!");
-    router.push("/analytics");
+    try {
+      const result = await uploadCSV(file);
+      toast.success("Analysis complete!");
+      router.push(`/analytics?session=${result.session_id}`);
+    } catch (error: any) {
+      toast.error(error.message || "Analysis failed. Please try again.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -119,8 +123,8 @@ export default function UploadPage() {
                     <div className="flex flex-col items-center gap-2 text-center">
                       <h3 className="text-xl font-semibold">Analyzing Data</h3>
                       <p className="text-muted-foreground w-64 md:w-80">
-                        Please wait while we process your CSV file and extract
-                        insights.
+                        Please wait while we process your CSV file and detect
+                        fraud patterns.
                       </p>
                     </div>
                   </div>
