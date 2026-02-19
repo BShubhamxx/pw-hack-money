@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from db.database import init_db
 from backend.app.routes.sessions import router as sessions_router
+from backend.app.routes.upload import router as upload_router
 
 
 @asynccontextmanager
@@ -39,6 +40,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(sessions_router)
+app.include_router(upload_router)
 
 
 @app.get("/health", tags=["health"])
