@@ -1,13 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -41,12 +34,12 @@ export function FiltersPanel({
   onReset,
 }: FiltersPanelProps) {
   return (
-    <Card className="h-full border-none shadow-none">
-      <CardHeader className="px-0 pt-0">
-        <CardTitle>Filters</CardTitle>
-        <CardDescription>Filter graph view.</CardDescription>
-      </CardHeader>
-      <CardContent className="px-0 space-y-6">
+    <div className="h-full flex flex-col">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold">Filters</h3>
+        <p className="text-sm text-muted-foreground">Filter graph view.</p>
+      </div>
+      <div className="space-y-6 flex-1">
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>Min Risk Score</Label>
@@ -104,7 +97,7 @@ export function FiltersPanel({
         <Button variant="outline" className="w-full" onClick={onReset}>
           Reset Filters
         </Button>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

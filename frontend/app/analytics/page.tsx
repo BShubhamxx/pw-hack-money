@@ -39,7 +39,8 @@ import { useSearchParams } from "next/navigation";
 import { IconLoader } from "@tabler/icons-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Upload } from "lucide-react";
+import { Upload, Download } from "lucide-react";
+import { useCallback } from "react";
 
 function AnalyticsContent() {
   const searchParams = useSearchParams();
@@ -177,9 +178,61 @@ function AnalyticsContent() {
     setSelectedRingId(null);
   };
 
+  const handleDownloadJSON = useCallback(() => {
+    if (!graphData) return;
+
+    // Build suspicious_accounts from nodes that are suspicious, sorted by riskScore descending
+    const suspiciousAccounts = graphData.nodes
+      .filter((node) => node.suspicious)
+      .sort((a, b) => b.riskScore - a.riskScore)
+      .map((node) => ({
+        account_id: node.id,
+        suspicion_score: Math.round(node.riskScore * 10) / 10,
+        detected_patterns: node.patternType
+          ? [node.patternType, node.riskScore > 80 ? "high_velocity" : null].filter(Boolean)
+          : [],
+        ring_id: node.ringId || null,
+      }));
+
+    // Build fraud_rings from rings array
+    const fraudRings = graphData.rings.map((ring) => ({
+      ring_id: ring.ringId,
+      member_accounts: ring.members,
+      pattern_type: ring.patternType,
+      risk_score: Math.round(ring.riskScore * 10) / 10,
+    }));
+
+    // Build summary from stats
+    const summary = {
+      total_accounts_analyzed: stats.totalAccounts,
+      suspicious_accounts_flagged: stats.suspiciousCount,
+      fraud_rings_detected: stats.ringsDetected,
+      processing_time_seconds: Math.round(stats.avgProcessingTime * 100) / 100,
+    };
+
+    const outputData = {
+      suspicious_accounts: suspiciousAccounts,
+      fraud_rings: fraudRings,
+      summary,
+    };
+
+    // Create and download the JSON file
+    const blob = new Blob([JSON.stringify(outputData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `fraud-analysis-${sessionId || "report"}-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [graphData, stats, sessionId]);
+
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-      <div className="flex items-center justify-between space-y-2">
+      <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Fraud Analytics</h2>
           <p className="text-muted-foreground">
@@ -188,6 +241,12 @@ function AnalyticsContent() {
               : "Detailed analysis of financial transaction patterns and detected fraud rings."}
           </p>
         </div>
+        {graphData && graphData.nodes.length > 0 && (
+          <Button onClick={handleDownloadJSON} variant="outline">
+            <Download className="mr-2 h-4 w-4" />
+            Download JSON
+          </Button>
+        )}
       </div>
 
       <StatsCards {...stats} />
@@ -224,7 +283,7 @@ function AnalyticsContent() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-12 lg:grid-cols-12 md:h-[calc(100vh-16rem)]">
+        <div className="grid gap-4 md:grid-cols-12 h-[calc(100vh-16rem)]">
           <div className="col-span-12 md:col-span-3 lg:col-span-2">
             <Card className="h-full">
               <CardContent className="p-4 h-full">
@@ -242,33 +301,31 @@ function AnalyticsContent() {
             </Card>
           </div>
 
-          <div className="col-span-12 md:col-span-9 lg:col-span-10 flex flex-col gap-4 h-full">
-            <Card className="flex-1 min-h-100">
-              <CardHeader>
+          <div className="col-span-12 md:col-span-9 lg:col-span-10 flex flex-col gap-4">
+            <Card className="flex-1 flex flex-col min-h-75">
+              <CardHeader className="shrink-0">
                 <CardTitle>Transaction Graph</CardTitle>
                 <CardDescription>
                   Interactive visualization of relationships. Red nodes indicate
                   high suspicion.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="h-[calc(100%-5rem)] p-0">
+              <CardContent className="flex-1 p-4 pt-0">
                 <div className="h-full w-full">
                   <GraphView data={filteredData} />
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="h-1/3 min-h-64 flex flex-col">
-              <CardHeader>
+            <Card className="shrink-0 h-70 flex flex-col">
+              <CardHeader className="shrink-0">
                 <CardTitle>Detected Fraud Rings</CardTitle>
                 <CardDescription>
                   Summary of all identified fraud rings and their risk scores.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="flex-1 overflow-auto">
-                  <FraudTable data={filteredData.rings} />
-                </div>
+              <CardContent className="flex-1 overflow-auto">
+                <FraudTable data={filteredData.rings} />
               </CardContent>
             </Card>
           </div>
